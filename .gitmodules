@@ -1,0 +1,3 @@
+[submodule "vowed-on-chain-api"]
+	path = vowed-on-chain-api
+	url = https://github.com/ITZSHOAIB/vowed-on-chain-api.git
