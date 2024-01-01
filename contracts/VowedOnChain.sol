@@ -3,18 +3,23 @@
 pragma solidity >=0.8.2 <0.9.0;
 
 contract VowedOnChain {
-    // The struct that defines a spouse
-    struct Spouse {
-        address partner; // The address of the partner
+    // The struct that defines a marriage
+    struct Marriage {
+        address spouse1; // The address of the first spouse
+        address spouse2; // The address of the second spouse
         uint256 weddingDate; // The date of the wedding
         MarriageStatus status; // The status of the marriage
         MarriageStatus proposedStatus; // The proposed status of the marriage
         address proposer; // The address of the proposer
-        uint256 giftBalance; // The gift balance of the spouse
+        uint256 giftBalance; // Balance of sent gifts
     }
 
-    // The mapping of spouses to their data
-    mapping(address => Spouse) public spouses;
+    // The mapping of marriage ids to marriages
+    mapping(uint256 => Marriage) public marriages;
+
+    // The mapping of spouse addresses to marriage ids
+    mapping(address => uint256) public spouseToMarriage;
+
     // The status of the marriage
     enum MarriageStatus {
         Single,
@@ -25,6 +30,7 @@ contract VowedOnChain {
 
     // The event that is emitted when a status change occurs
     event StatusChanged(
+        uint256 indexed marriageID,
         address indexed spouse1,
         address indexed spouse2,
         MarriageStatus oldStatus,
@@ -34,19 +40,17 @@ contract VowedOnChain {
     // The event that is emitted when someone sends a gift to the contract
     event Gifted(
         address indexed sender,
-        address indexed receiver,
+        uint256 indexed marriageID,
         uint256 amount
     );
-    // // The event that is emitted when a spouse proposes a status change
-    // event Proposed(address indexed proposer, MarriageStatus proposedStatus);
-    // // The event that is emitted when a spouse accepts a status change
-    // event Accepted(address indexed accepter, MarriageStatus acceptedStatus);
 
-    // The modifier that checks if the caller is the partner of the given address
-    modifier onlyPartnerOf(address _partner) {
+    // The modifier that checks if the caller is one of the spouses in the marriage
+    modifier onlySpouse() {
+        uint256 _marriageID = spouseToMarriage[msg.sender];
         require(
-            spouses[msg.sender].partner == _partner,
-            "Only the partner of the given address can call this function."
+            msg.sender == marriages[_marriageID].spouse1 ||
+                msg.sender == marriages[_marriageID].spouse2,
+            "Only a spouse in the marriage can call this function."
         );
         _;
     }
@@ -54,7 +58,7 @@ contract VowedOnChain {
     // The modifier that checks if the marriage status is as expected
     modifier onlyStatus(MarriageStatus _status) {
         require(
-            spouses[msg.sender].status == _status,
+            marriages[spouseToMarriage[msg.sender]].status == _status,
             "The marriage status is not as expected."
         );
         _;
@@ -62,7 +66,7 @@ contract VowedOnChain {
 
     modifier onlyOtherThan(MarriageStatus _status) {
         require(
-            spouses[msg.sender].status != _status,
+            marriages[spouseToMarriage[msg.sender]].status != _status,
             "The proposed status is the same as the current status."
         );
         _;
@@ -70,26 +74,46 @@ contract VowedOnChain {
 
     // The constructor that sets the initial status of the caller
     constructor() {
-        spouses[msg.sender].status = MarriageStatus.Single;
+        // Create a dummy marriage with id 0 for single people
+        marriages[0] = Marriage({
+            spouse1: address(0),
+            spouse2: address(0),
+            weddingDate: 0,
+            status: MarriageStatus.Single,
+            proposedStatus: MarriageStatus.Single,
+            proposer: address(0),
+            giftBalance: 0
+        });
     }
 
     // The function that allows a single person to get engaged with another single person
     function getEngaged(
         address _partner
-    ) external onlyStatus(MarriageStatus.Single) onlyPartnerOf(address(0)) {
+    ) external onlyStatus(MarriageStatus.Single) {
         require(
-            spouses[_partner].status == MarriageStatus.Single,
+            marriages[spouseToMarriage[_partner]].status ==
+                MarriageStatus.Single,
             "The partner is not single."
         );
-        require(
-            spouses[_partner].partner == address(0),
-            "The partner is already engaged with someone else."
+        // Generate a new marriage id
+        uint256 marriageID = uint256(
+            keccak256(abi.encodePacked(msg.sender, _partner, block.number))
         );
-        spouses[msg.sender].partner = _partner;
-        spouses[_partner].partner = msg.sender;
-        spouses[msg.sender].status = MarriageStatus.Engaged;
-        spouses[_partner].status = MarriageStatus.Engaged;
+        // Create a new marriage with the id and the spouses
+        marriages[marriageID] = Marriage({
+            spouse1: msg.sender,
+            spouse2: _partner,
+            weddingDate: 0,
+            status: MarriageStatus.Engaged,
+            proposedStatus: MarriageStatus.Engaged,
+            proposer: address(0),
+            giftBalance: 0
+        });
+        // Assign the spouses to the new marriage
+        spouseToMarriage[msg.sender] = marriageID;
+        spouseToMarriage[_partner] = marriageID;
         emit StatusChanged(
+            marriageID,
             msg.sender,
             _partner,
             MarriageStatus.Single,
@@ -99,13 +123,15 @@ contract VowedOnChain {
     }
 
     function updateProposedStatus(MarriageStatus _status) private {
-        spouses[msg.sender].proposedStatus = _status;
-        spouses[msg.sender].proposer = msg.sender;
+        uint256 _marriageID = spouseToMarriage[msg.sender];
+        marriages[_marriageID].proposedStatus = _status;
+        marriages[_marriageID].proposer = msg.sender;
     }
 
     // The function that allows an engaged person to propose marriage to their partner
     function proposeMarriage()
         external
+        onlySpouse
         onlyStatus(MarriageStatus.Engaged)
         onlyOtherThan(MarriageStatus.Married)
     {
@@ -115,6 +141,7 @@ contract VowedOnChain {
     // The function that allows a married person to propose divorce to their partner
     function proposeDivorce()
         external
+        onlySpouse
         onlyStatus(MarriageStatus.Married)
         onlyOtherThan(MarriageStatus.Divorced)
     {
@@ -122,27 +149,31 @@ contract VowedOnChain {
     }
 
     // The function that allows a spouse to accept a status change from their partner
-    function acceptStatus()
-        external
-        onlyPartnerOf(spouses[spouses[msg.sender].partner].proposer)
-    {
+    function acceptStatus() external onlySpouse {
+        uint256 _marriageID = spouseToMarriage[msg.sender];
         require(
-            spouses[spouses[msg.sender].partner].proposedStatus !=
-                spouses[msg.sender].status,
+            marriages[_marriageID].proposer != address(0),
+            "No proposal has been made."
+        );
+        require(
+            msg.sender != marriages[_marriageID].proposer,
+            "The proposer cannot accept their own proposal."
+        );
+        require(
+            marriages[_marriageID].proposedStatus !=
+                marriages[_marriageID].status,
             "The proposed status is the same as the current status."
         );
-        MarriageStatus oldStatus = spouses[msg.sender].status;
-        MarriageStatus newStatus = spouses[spouses[msg.sender].partner]
-            .proposedStatus;
-        spouses[msg.sender].status = newStatus;
-        spouses[spouses[msg.sender].partner].status = newStatus;
+        MarriageStatus oldStatus = marriages[_marriageID].status;
+        MarriageStatus newStatus = marriages[_marriageID].proposedStatus;
+        marriages[_marriageID].status = newStatus;
         if (newStatus == MarriageStatus.Married) {
-            spouses[msg.sender].weddingDate = block.timestamp;
-            spouses[spouses[msg.sender].partner].weddingDate = block.timestamp;
+            marriages[_marriageID].weddingDate = block.timestamp;
         }
         emit StatusChanged(
-            msg.sender,
-            spouses[msg.sender].partner,
+            _marriageID,
+            marriages[_marriageID].spouse1,
+            marriages[_marriageID].spouse2,
             oldStatus,
             newStatus,
             block.timestamp
@@ -150,32 +181,38 @@ contract VowedOnChain {
     }
 
     // The function that allows a divorced person to reset their status to single
-    function resetStatus() external onlyStatus(MarriageStatus.Divorced) {
-        spouses[msg.sender].partner = address(0);
-        spouses[msg.sender].status = MarriageStatus.Single;
+    function resetStatus()
+        external
+        onlySpouse
+        onlyStatus(MarriageStatus.Divorced)
+    {
+        // Assign the spouse to the dummy marriage
+        spouseToMarriage[msg.sender] = 0;
     }
 
-    // The function that allows anyone to send a gift to a spouse directly
-    function sendGift(address _receiver) external payable {
+    // The function that allows anyone to send a gift to a marriage
+    function sendGift(uint256 _marriageID) external payable {
         require(msg.value > 0, "The gift amount must be positive.");
         require(
-            spouses[_receiver].status != MarriageStatus.Single,
-            "The receiver must be engaged or married."
+            marriages[_marriageID].status != MarriageStatus.Single,
+            "The marriage must be engaged or married."
         );
-        spouses[_receiver].giftBalance += msg.value;
-        emit Gifted(msg.sender, _receiver, msg.value);
+        marriages[_marriageID].giftBalance += msg.value;
+        emit Gifted(msg.sender, _marriageID, msg.value);
     }
 
     // The function that allows a spouse to withdraw their gift balance
-    function withdrawGifts() external {
-        uint256 giftBalance = spouses[msg.sender].giftBalance;
+    function withdrawGifts(uint256 _marriageID) external onlySpouse {
+        uint256 giftBalance = marriages[_marriageID].giftBalance;
         require(giftBalance > 0, "The gift balance must be positive.");
-        spouses[msg.sender].giftBalance = 0;
+        marriages[_marriageID].giftBalance = 0;
         payable(msg.sender).transfer(giftBalance);
     }
 
     // The function that returns the gift balance of a spouse
-    function getGiftBalance() external view returns (uint256) {
-        return spouses[msg.sender].giftBalance;
+    function getGiftBalance(
+        uint256 _marriageID
+    ) external view onlySpouse returns (uint256) {
+        return marriages[_marriageID].giftBalance;
     }
 }
