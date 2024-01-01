@@ -3,15 +3,18 @@
 pragma solidity >=0.8.2 <0.9.0;
 
 contract VowedOnChain {
-    // The address of the first spouse
-    address public spouse1;
+    // The struct that defines a spouse
+    struct Spouse {
+        address partner; // The address of the partner
+        uint256 weddingDate; // The date of the wedding
+        MarriageStatus status; // The status of the marriage
+        MarriageStatus proposedStatus; // The proposed status of the marriage
+        address proposer; // The address of the proposer
+        uint256 giftBalance; // The gift balance of the spouse
+    }
 
-    // The address of the second spouse
-    address public spouse2;
-
-    // The date of the wedding
-    uint256 public weddingDate;
-
+    // The mapping of spouses to their data
+    mapping(address => Spouse) public spouses;
     // The status of the marriage
     enum MarriageStatus {
         Single,
@@ -19,129 +22,160 @@ contract VowedOnChain {
         Married,
         Divorced
     }
-    MarriageStatus public status;
-    // The proposed status of the marriage
-    MarriageStatus public proposedStatus;
-    // The address of the spouse who proposed the status change
-    address public proposer;
 
-    // The event that is emitted when the couple gets engaged
-    event Engaged(address indexed spouse1, address indexed spouse2);
-    // The event that is emitted when the couple gets married
-    event Married(
+    // The event that is emitted when a status change occurs
+    event StatusChanged(
         address indexed spouse1,
         address indexed spouse2,
-        uint256 date
-    );
-    // The event that is emitted when the couple gets divorced
-    event Divorced(
-        address indexed spouse1,
-        address indexed spouse2,
+        MarriageStatus oldStatus,
+        MarriageStatus newStatus,
         uint256 date
     );
     // The event that is emitted when someone sends a gift to the contract
-    event Gifted(address indexed sender, uint256 amount);
-    // The event that is emitted when a spouse proposes a status change
-    event Proposed(address indexed proposer, MarriageStatus proposedStatus);
-    // The event that is emitted when a spouse accepts a status change
-    event Accepted(address indexed accepter, MarriageStatus acceptedStatus);
+    event Gifted(
+        address indexed sender,
+        address indexed receiver,
+        uint256 amount
+    );
+    // // The event that is emitted when a spouse proposes a status change
+    // event Proposed(address indexed proposer, MarriageStatus proposedStatus);
+    // // The event that is emitted when a spouse accepts a status change
+    // event Accepted(address indexed accepter, MarriageStatus acceptedStatus);
 
-    // The modifier that checks if the caller is one of the spouses
-    modifier onlySpouse() {
+    // The modifier that checks if the caller is the partner of the given address
+    modifier onlyPartnerOf(address _partner) {
         require(
-            msg.sender == spouse1 || msg.sender == spouse2,
-            "Only a spouse can call this function."
+            spouses[msg.sender].partner == _partner,
+            "Only the partner of the given address can call this function."
         );
         _;
     }
 
     // The modifier that checks if the marriage status is as expected
     modifier onlyStatus(MarriageStatus _status) {
-        require(status == _status, "The marriage status is not as expected.");
+        require(
+            spouses[msg.sender].status == _status,
+            "The marriage status is not as expected."
+        );
         _;
     }
 
     modifier onlyOtherThan(MarriageStatus _status) {
         require(
-            status != _status,
+            spouses[msg.sender].status != _status,
             "The proposed status is the same as the current status."
         );
         _;
     }
 
-    // The constructor that sets the owner and the initial status
+    // The constructor that sets the initial status of the caller
     constructor() {
-        spouse1 = msg.sender;
-        status = MarriageStatus.Single;
+        spouses[msg.sender].status = MarriageStatus.Single;
     }
 
-    // The function that allows the owner to set the spouses
-    function getEngaged(address _spouse2)
-        external
-        onlySpouse
-        onlyStatus(MarriageStatus.Single)
-    {
-        spouse2 = _spouse2;
-        status = MarriageStatus.Engaged;
-        emit Engaged(spouse1, spouse2);
+    // The function that allows a single person to get engaged with another single person
+    function getEngaged(
+        address _partner
+    ) external onlyStatus(MarriageStatus.Single) onlyPartnerOf(address(0)) {
+        require(
+            spouses[_partner].status == MarriageStatus.Single,
+            "The partner is not single."
+        );
+        require(
+            spouses[_partner].partner == address(0),
+            "The partner is already engaged with someone else."
+        );
+        spouses[msg.sender].partner = _partner;
+        spouses[_partner].partner = msg.sender;
+        spouses[msg.sender].status = MarriageStatus.Engaged;
+        spouses[_partner].status = MarriageStatus.Engaged;
+        emit StatusChanged(
+            msg.sender,
+            _partner,
+            MarriageStatus.Single,
+            MarriageStatus.Engaged,
+            block.timestamp
+        );
     }
 
     function updateProposedStatus(MarriageStatus _status) private {
-        proposedStatus = _status;
-        proposer = msg.sender;
-        emit Proposed(proposer, proposedStatus);
+        spouses[msg.sender].proposedStatus = _status;
+        spouses[msg.sender].proposer = msg.sender;
     }
 
-    // The function that allows a spouse to propose a status change
+    // The function that allows an engaged person to propose marriage to their partner
     function proposeMarriage()
         external
-        onlySpouse
         onlyStatus(MarriageStatus.Engaged)
         onlyOtherThan(MarriageStatus.Married)
     {
         updateProposedStatus(MarriageStatus.Married);
     }
 
+    // The function that allows a married person to propose divorce to their partner
     function proposeDivorce()
         external
-        onlySpouse
         onlyStatus(MarriageStatus.Married)
         onlyOtherThan(MarriageStatus.Divorced)
     {
         updateProposedStatus(MarriageStatus.Divorced);
     }
 
-    // The function that allows a spouse to accept a status change
-    function acceptStatus() external onlySpouse {
-        require(proposer != address(0), "No proposal has been made.");
+    // The function that allows a spouse to accept a status change from their partner
+    function acceptStatus()
+        external
+        onlyPartnerOf(spouses[spouses[msg.sender].partner].proposer)
+    {
         require(
-            msg.sender != proposer,
-            "The proposer cannot accept their own proposal."
-        );
-        require(
-            proposedStatus != status,
+            spouses[spouses[msg.sender].partner].proposedStatus !=
+                spouses[msg.sender].status,
             "The proposed status is the same as the current status."
         );
-        status = proposedStatus;
-        if (status == MarriageStatus.Married) {
-            weddingDate = block.timestamp;
-            emit Married(spouse1, spouse2, weddingDate);
-        } else if (status == MarriageStatus.Divorced) {
-            emit Divorced(spouse1, spouse2, block.timestamp);
+        MarriageStatus oldStatus = spouses[msg.sender].status;
+        MarriageStatus newStatus = spouses[spouses[msg.sender].partner]
+            .proposedStatus;
+        spouses[msg.sender].status = newStatus;
+        spouses[spouses[msg.sender].partner].status = newStatus;
+        if (newStatus == MarriageStatus.Married) {
+            spouses[msg.sender].weddingDate = block.timestamp;
+            spouses[spouses[msg.sender].partner].weddingDate = block.timestamp;
         }
-        emit Accepted(msg.sender, status);
-        proposer = address(0);
+        emit StatusChanged(
+            msg.sender,
+            spouses[msg.sender].partner,
+            oldStatus,
+            newStatus,
+            block.timestamp
+        );
     }
 
-    // The function that allows anyone to send gifts to the contract
-    function sendGift() external payable {
+    // The function that allows a divorced person to reset their status to single
+    function resetStatus() external onlyStatus(MarriageStatus.Divorced) {
+        spouses[msg.sender].partner = address(0);
+        spouses[msg.sender].status = MarriageStatus.Single;
+    }
+
+    // The function that allows anyone to send a gift to a spouse directly
+    function sendGift(address _receiver) external payable {
         require(msg.value > 0, "The gift amount must be positive.");
-        emit Gifted(msg.sender, msg.value);
+        require(
+            spouses[_receiver].status != MarriageStatus.Single,
+            "The receiver must be engaged or married."
+        );
+        spouses[_receiver].giftBalance += msg.value;
+        emit Gifted(msg.sender, _receiver, msg.value);
     }
 
-    // The function that allows the owner to withdraw the gifts from the contract
-    function withdrawGifts() external onlySpouse {
-        require(address(this).balance > 0, "The contract balance is zero.");
-        payable(msg.sender).transfer(address(this).balance);
+    // The function that allows a spouse to withdraw their gift balance
+    function withdrawGifts() external {
+        uint256 giftBalance = spouses[msg.sender].giftBalance;
+        require(giftBalance > 0, "The gift balance must be positive.");
+        spouses[msg.sender].giftBalance = 0;
+        payable(msg.sender).transfer(giftBalance);
+    }
+
+    // The function that returns the gift balance of a spouse
+    function getGiftBalance() external view returns (uint256) {
+        return spouses[msg.sender].giftBalance;
     }
 }
