@@ -202,7 +202,8 @@ contract VowedOnChain {
     }
 
     // The function that allows a spouse to withdraw their gift balance
-    function withdrawGifts(uint256 _marriageID) external onlySpouse {
+    function withdrawGifts() external onlySpouse {
+        uint256 _marriageID = spouseToMarriage[msg.sender];
         uint256 giftBalance = marriages[_marriageID].giftBalance;
         require(giftBalance > 0, "The gift balance must be positive.");
         marriages[_marriageID].giftBalance = 0;
@@ -210,9 +211,7 @@ contract VowedOnChain {
     }
 
     // The function that returns the gift balance of a spouse
-    function getGiftBalance(
-        uint256 _marriageID
-    ) external view onlySpouse returns (uint256) {
-        return marriages[_marriageID].giftBalance;
+    function getGiftBalance() external view onlySpouse returns (uint256) {
+        return marriages[spouseToMarriage[msg.sender]].giftBalance;
     }
 }
