@@ -194,7 +194,7 @@ contract VowedOnChain {
     function sendGift(uint256 _marriageID) external payable {
         require(msg.value > 0, "The gift amount must be positive.");
         require(
-            marriages[_marriageID].status != MarriageStatus.Single,
+            marriages[_marriageID].status == MarriageStatus.Married,
             "The marriage must be engaged or married."
         );
         marriages[_marriageID].giftBalance += msg.value;
