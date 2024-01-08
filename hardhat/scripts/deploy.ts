@@ -23,7 +23,7 @@ function saveArtifacts(contract: any) {
 
   fs.writeFileSync(
     path.join(contractsDir, "contract-address.json"),
-    JSON.stringify({ VowedOnChain: contract.address }, undefined, 2)
+    JSON.stringify({ VowedOnChainAddress: contract.address }, undefined, 2)
   );
 
   const VowedOnChainArtifacts = artifacts.readArtifactSync("VowedOnChain");
@@ -38,3 +38,5 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+
+// npx hardhat run --network localhost scripts/deploy.ts

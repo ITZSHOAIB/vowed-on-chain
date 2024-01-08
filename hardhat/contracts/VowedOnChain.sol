@@ -86,6 +86,23 @@ contract VowedOnChain {
         });
     }
 
+    function getMaritalStatus() external view returns (MarriageStatus) {
+        return marriages[spouseToMarriage[msg.sender]].status;
+    }
+
+    function getSpouseAddress() external view returns (address) {
+        if (
+            marriages[spouseToMarriage[msg.sender]].status ==
+            MarriageStatus.Single
+        ) {
+            return address(0);
+        }
+        if (marriages[spouseToMarriage[msg.sender]].spouse1 == msg.sender) {
+            return marriages[spouseToMarriage[msg.sender]].spouse2;
+        }
+        return marriages[spouseToMarriage[msg.sender]].spouse1;
+    }
+
     // The function that allows a single person to get engaged with another single person
     function getEngaged(
         address _partner
@@ -211,7 +228,7 @@ contract VowedOnChain {
     }
 
     // The function that returns the gift balance of a spouse
-    function getGiftBalance() external view onlySpouse returns (uint256) {
+    function getGiftBalance() external view returns (uint256) {
         return marriages[spouseToMarriage[msg.sender]].giftBalance;
     }
 }
